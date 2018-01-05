@@ -52,7 +52,7 @@ ggmap(baseMap_invert)+
   mapTheme()
 
 #import data (Data collection and wrangling done outside of R. Descriptions available in markdown)
-df <- read.csv("~/PENN/Fall_Semester/MUSA507/Midterm/ForPortfolio/WrangledData.csv")
+df <- read.csv("WrangledData.csv")
 df2 <- select(df, -Parcel_No, -Latitude_1, -Longitud_1)
 df$SalePrice <- sapply(df$SalePrice, as.numeric)
 
@@ -198,14 +198,12 @@ Raster <-
   stat_summary_2d(geom = "tile",
                   bins = 80,
                   data=residualsToMap,
-                  aes(x = longitude, y = latitude, z = ntile(residual,5))
-  ) +
-  scale_fill_gradient(low = "yellow",
-                      high = "blue",
-                      guide = guide_legend(title = "Residuals \n (Quintiles)")) +
-  labs(title="Predicted sale price residuals",
-       subtitle="Raster") +
-  mapTheme()
+                  aes(x = longitude, y = latitude, z = ntile(residual,5))) +
+                  scale_fill_gradient(low = "yellow", high = "blue", 
+                  guide = guide_legend(title = "Residuals \n (Quintiles)")) +
+                  labs(title="Predicted sale price residuals",
+                  subtitle="Raster") + mapTheme()
+
 Raster
 
 
