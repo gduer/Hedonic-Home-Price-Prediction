@@ -1,0 +1,552 @@
+---
+title: "Hedonic Home Price Prediction in Boston, MA"
+author: "Guy Duer"
+date: "January 4, 2018"
+output:
+  html_document: 
+    toc: yes
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+
+(This fictional report was prepared as a class assignment for MUSA507 at the University of Pennsylvania)
+
+My client, Zillow, has realized that the predictions of home prices in the Boston area which are currently on the site are not sufficiently accurate. This lack of accuracy is putting the site's credibility in question and hurting its ability to attract and retain customers in the region.
+
+Accurately predicting home prices is difficult. Home prices are a function of many complex considerations including the physical characteristics, location, and other factors including seasonal variations and the personal preferences of buyers and sellers.
+
+To achieve better prediction accuracy, I have collected data to capture as many of the factors listed above as possible. More specifically, I worked to capture the variation in prices due to both physical characteristics of homes, and the underlying spatial patterns of prices in the region. 
+
+The resulting model was able to improve predictions considerably, with a new error margin of only about 11%-12%.
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(ggmap)
+
+#Setup map theme
+mapTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 14,colour = "black"),
+    plot.subtitle=element_text(face="italic"),
+    plot.caption=element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill=NA, size=2)
+  )
+}
+
+#Setup basemap
+baseMap <- get_map(location = "Roxbury, Boston", 
+                   source = "stamen", 
+                   zoom = 12, 
+                   maptype= 'toner')
+
+#Invert basemap colors
+invert <- function(x) rgb(t(255-col2rgb(x))/255)    
+baseMap_invert <- as.raster(apply(baseMap, 2, invert))
+class(baseMap_invert) <- class(baseMap)
+attr(baseMap_invert, "bb") <- attr(baseMap, "bb")
+ggmap(baseMap_invert)+
+  mapTheme()
+```
+
+
+The map below shows the observation points in the data set. 
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+
+options(scipen=999)
+
+df <- read.csv("WrangledData.csv")
+df2 <- select(df, -Parcel_No, -Latitude_1, -Longitud_1)
+df$SalePrice <- sapply(df$SalePrice, as.numeric)
+
+df_Train <- df2[df2$SalePrice > 0,]
+  
+df_Test <- df2[df2$SalePrice == 0,]
+```
+
+```{r fig.height=6, fig.width=9}
+library(leaflet)
+
+leaflet(data = df) %>% setView(lng = -71.08, lat = 42.33, zoom = 12) %>% addProviderTiles(providers$CartoDB.Positron) %>% 
+  addProviderTiles(providers$Stamen.TonerLines, options = providerTileOptions(opacity = 0.35)) %>%
+  addProviderTiles( providers$Stamen.TonerLabels) %>% 
+  addCircleMarkers(lng = df$Longitud_1, lat = df$Latitude_1, radius = 3, color = ifelse(df$SalePrice > 0, "blue", "red"), stroke = FALSE, fillOpacity = 0.5, clusterOptions = markerClusterOptions(disableClusteringAtZoom = 13), label = ~as.character(paste("Sale Number: ", UniqueSale, ",  " ,"Sale Price: $", SalePrice))) %>%
+  addLegend("topright", colors = c("red", "blue"), labels = c("Test-Set", "Training-Set"),
+    title = "Training/Testing Set",
+    opacity = 1
+  )
+  
+```
+
+
+###Data
+
+Data variables came from various sources. Physical housing characteristics, and the sales date were provided in the original Zillow data set. Some variables from the original data set with many categorical values or uneven distribution of values (e.g. sale date, year remodeled) were modified in order to increase predictive capacity.
+
+New variables which model spatial considerations were added to the data set. These variables were created through spatial analyses of the original data set, as well as through the incorporation of data gathered from open data sources on the web.
+
+
+
+###Summary Statistics
+Description of the variables is available in the Appendix.  
+
+```{r message=FALSE, warning=FALSE}
+library(stargazer)
+stargazer(df_Train, type="text", title = "Variable Summary Statistics") 
+```
+
+
+###Correlation Matrix
+
+Avoiding multi-collinearity (high level of correlation between predictors) can help improve the accuracy of the model. To examine this, The correlation matrix of the numeric variables in the model is shown below. Variables with correlation greater than 0.8 will be removed from the model. 
+
+
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+dfNum <- select(df_Train, -UniqueSale, -SaleSeason, -STRUCTURE_, -R_BLDG_STY, -SaleMonth, -Style , -LU, -R_ROOF_TYP, -HEAT_SYS, -R_EXT_FIN, -Neighborhood)
+
+#Correlation Matrix
+CorMatrix <- cor(dfNum)
+
+library(corrplot)
+corrplot(CorMatrix, method = "color", order = "AOE", addCoef.col="grey", type = "upper", addCoefasPercent = FALSE, number.cex = .7)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#Removing multi-colinear variables (>.80)
+df2 <- select(df2, -GROSS_AREA, -LivingArea, -YR_REMOD, -R_BDRMS, -R_KITCH, -Dist_AP)
+df_Train <- df2[df2$SalePrice > 0,]
+df_Test <- df2[df2$SalePrice == 0,]
+```
+
+
+###Analyzing Predictor Distributions
+
+The OLS model works best when the predictors and dependent variable are normally distributed. The distribution of some predictors may be brought closer to a normal distribution by log-transforming them. The plots below show the current distributions of the continuous predictors. 
+
+
+```{r fig.height=20, fig.width=20, message=FALSE, warning=FALSE}
+#Analysis of continuous predictors
+dfCont <- select(dfNum, -GROSS_AREA, -LivingArea, -YR_REMOD, -NewlyRemodeled, -R_BDRMS, -R_KITCH, -Dist_AP, -NearCommonwealth, -NearImpBldg, -NearUni, -C_AC, -OWN_OCC, -PTYPE, -ZIPCODE, 
+                 -R_FPLACE, -R_HALF_BTH, -R_FULL_BTH, -NearAP)
+
+#Distribution analysis
+library(reshape2)
+dfContMelted <- melt(dfCont)
+
+library(ggplot2)
+ggplot(data = dfContMelted, mapping = aes(x = value)) + 
+  geom_histogram(bins = 30) + facet_wrap(~variable, scales = 'free_x') + theme(axis.text.x = element_blank())
+```
+
+
+Predictors which are negatively skewed are the best candidates for normalizing by using log-transformation. The new distributions of the transformed predictors are shown below. 
+
+
+```{r fig.height=5, fig.show='hold', fig.width=5, message=FALSE, warning=FALSE, out.width='50%'}
+#Log-Transforming to normalize selected predictors 
+ggplot(df2, aes(x=LAND_SF)) + geom_histogram()
+ggplot(df2, aes(x=log(LAND_SF))) + geom_histogram()
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df2$LogLAND_SF <- log(df2$LAND_SF)
+df2$LAND_SF <- NULL
+```
+
+```{r fig.height=5, fig.show='hold', fig.width=5, message=FALSE, warning=FALSE, out.width='50%'}
+#Log-Transforming to normalize selected predictors 
+ggplot(df2, aes(x=LIVING_ARE)) + geom_histogram()
+ggplot(df2, aes(x=log(LIVING_ARE))) + geom_histogram()
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df2$LogLIVING_ARE <- log(df2$LIVING_ARE)
+df2$LIVING_ARE <- NULL
+```
+
+```{r fig.height=5, fig.show='hold', fig.width=5, message=FALSE, warning=FALSE, out.width='50%'}
+#Log-Transforming to normalize selected predictors 
+ggplot(df2, aes(x=PCTVACANT)) + geom_histogram() + stat_bin(bins = 10)
+ggplot(df2, aes(x=log(PCTVACANT + 1))) + geom_histogram() + stat_bin(bins = 10)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df2$LogPCTVACANT <- log(df2$PCTVACANT + 1)
+df2$PCTVACANT <- NULL
+```
+
+```{r fig.height=5, fig.show='hold', fig.width=5, message=FALSE, warning=FALSE, out.width='50%'}
+#Log-Transforming to normalize selected predictors 
+ggplot(df2, aes(x=Dist_Major_Road)) + geom_histogram() + stat_bin(bins = 20)
+ggplot(df2, aes(x=log(Dist_Major_Road + 1))) + geom_histogram() + stat_bin(bins = 20)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df2$LogDist_Major_Road <- log(df2$Dist_Major_Road + 1)
+df2$Dist_Major_Road <- NULL
+```
+
+```{r fig.height=5, fig.show='hold', fig.width=5, message=FALSE, warning=FALSE, out.width='50%'}
+#Log-Transforming to normalize selected predictors 
+ggplot(df2, aes(x=Ave_SalePr)) + geom_histogram() + stat_bin(bins = 30)
+ggplot(df2, aes(x=log(Ave_SalePr))) + geom_histogram() + stat_bin(bins = 30)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df2$LogAve_SalePr <- log(df2$Ave_SalePr)
+df2$Ave_SalePr <- NULL
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df_Train <- df2[df2$SalePrice > 0,]
+df_Test <- df2[df2$SalePrice == 0,]
+```
+
+### Methods
+
+To generate the price predictions, I will use a Hedonic OLS Regression model. This method evaluates the direction and strength of the relationship between the dependent variable in question (home prices) and the many factors (predictors) which may affect it. The model can estimate the effect of each of our predictors on sale prices while holding all other predictors constant, thereby allowing us to consider the effect of different variables concurrently.
+
+To train the model, I created a training data set (data set with known sale prices) which included 1323 observations to "train" the regression model to predict the home sales price in the test data set (the data set of homes with unknown, or 0, prices). Using this training data, it is possible to calibrate the regression coefficients to model home prices based on the data. Lastly, I used this "trained" model to predict the sale prices in the test set. 
+
+In evaluating the predictive ability of our model, I took two separate approaches. The first approach was "In-sample training", in which I divided the training data-set into two groups, and used one of the groups to predict the prices in the other. The second approach was a 10-fold cross-validation algorithm, which randomly divids the training set into ten equal "folds", and one by one predicts prices for each of the folds using the remaining nine folds. 
+
+To examine whether the model was sufficiently capturing spatial structure of prices, I used the Moran's I method. This method evaluates whether the model's errors are clustered in space to a statistically-significant degree (which would indicate some spatial dynamic that was not accounted for in the model). 
+
+
+### Model Building
+
+The model-building process is shown below. 
+
+####Linear Regression model 1: All predictors
+```{r}
+reg1 <- lm(log(SalePrice) ~ ., data =  df_Train %>% 
+             as.data.frame %>% dplyr::select(-UniqueSale))
+
+```
+
+####Stepwise Variable Analysis:
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(MASS)
+step <- stepAIC(reg1, direction="both")
+```
+
+```{r}
+step$anova
+```
+
+####linear regression model 2- Removing highly insignificant predictors:
+```{r message=FALSE, warning=FALSE}
+reg2 <- lm(log(SalePrice) ~ ., data =  df_Train %>% 
+             as.data.frame %>% dplyr::select(-UniqueSale, -PCTOWNEROC, -DistToPoor,
+                                             -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
+                                             -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
+                                             -OWN_OCC, -ZIPCODE, -Style, -SaleMonth))
+```
+
+####linear regression model 3- Removing more insignificant predictors:
+```{r message=FALSE, warning=FALSE}
+library(stargazer)
+reg3 <- lm(log(SalePrice) ~ ., data =  df_Train %>% 
+             as.data.frame %>% dplyr::select(-UniqueSale, -LogDist_Major_Road, -PCTOWNEROC, -DistToPoor,
+                                             -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
+                                             -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
+                                             -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
+                                             -NearCommonwealth, -LogPCTVACANT))
+
+
+stargazer(reg1, reg2, reg3, type="text", title = "Model Outputs", align=TRUE, no.space=TRUE, single.row=TRUE, ci=FALSE, column.labels=c("Model 1","Model 2", "Model 3")) 
+
+```
+
+####Stepwise Variable Analysis 2: 
+```{r message=FALSE, warning=FALSE, include=FALSE}
+step <- stepAIC(reg3, direction="both")
+```
+```{r}
+step$anova
+```
+
+###Model Evaluation and Assumption Testing
+
+The following section will test the assumptions associated with the OLS model (ie. Residual normality, heteroscedasticity). Additionally, I will evaluate whether the model's residuals exhibit significant spatial autocorrelation (indicating unaccounted-for spatial patterns).
+
+####Testing Residual Distribution:
+```{r}
+Reg_Dataframe <- cbind(reg3$residuals,reg3$fitted.values)
+Reg_Dataframe <- as.data.frame(Reg_Dataframe)
+
+colnames(Reg_Dataframe) <- c("residuals", "predictedValues")
+
+
+ggplot(reg3, aes(Reg_Dataframe$residuals)) + geom_histogram(bins=25) +
+  labs(x="Residuals",
+       y="Count")
+```
+Residuals look good! 
+
+####Testing for Heteroscedasticity:
+
+Predicted as function of residuals:
+```{r}
+ggplot(data = Reg_Dataframe, aes(x = residuals , y = predictedValues)) +
+  geom_point(size = 1) + xlab("Residuals") + ylab("Predicted Values") + ggtitle("Residual Values vs. Predicted Values") +  
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Observed as function of residuals:
+```{r}
+regDF <- cbind(log(df_Train$SalePrice), reg3$fitted.values)
+colnames(regDF) <- c("Observed", "Predicted")
+regDF <- as.data.frame(regDF)
+ggplot() + 
+  geom_point(data=regDF, aes(Observed, Predicted)) +
+  stat_smooth(data=regDF, aes(Observed, Observed), method = "lm", se = FALSE, size = 1) + 
+  labs(title="Predicted Price as a function\nof Observed Price") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Looks sufficiently heteroscedastic! 
+
+####Mapping Residuals (Observation points)
+```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+reg_residuals <- data.frame(reg3$residuals)
+LonLat <- data.frame(df[df$SalePrice>0,]$Longitud_1, df[df$SalePrice>0,]$Latitude_1)
+residualsToMap <- cbind(LonLat, reg_residuals )
+colnames(residualsToMap) <- c("longitude", "latitude", "residual")
+
+library(ggmap)
+ggmap(baseMap_invert) + 
+  geom_point(data = residualsToMap, 
+             aes(x=longitude, y=latitude, color = residual), 
+             size = 2) + scale_colour_gradient(low = "blue", high = "yellow") + mapTheme() +
+                  labs(title="Prediction Residuals (Per Observation)")
+```
+
+####Mapping Residuals (Raster Grid Quintiles)
+```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+library(ggmap)
+Raster <-
+  ggmap(baseMap_invert) +
+  stat_summary_2d(geom = "tile",
+                  bins = 80,
+                  data=residualsToMap,
+                  aes(x = longitude, y = latitude, z = ntile(residual,5))) +
+                  scale_fill_gradient(low = "yellow", high = "blue", 
+                  guide = guide_legend(title = "Residuals \n (Quintiles)")) +
+                  labs(title="Prediction Residuals (Raster Grid)") + mapTheme()
+
+Raster
+
+```
+
+
+No immediately noticeable spatial pattern in residuals. 
+
+####Moran's I Analysis
+```{r message=FALSE, warning=FALSE}
+library(spdep)
+coords <- cbind(df[df$SalePrice>0,]$Longitud_1, df[df$SalePrice>0,]$Latitude_1)
+spatialWeights <- knn2nb(knearneigh(coords, 4))
+moran.test(reg1$residuals, nb2listw(spatialWeights, style="W"))
+
+```
+
+Test results indicate that no significant spatial autocorrelation is present in the residuals. 
+
+
+###In-Sample Training
+```{r message=FALSE, warning=FALSE}
+library(caret)
+library(stargazer)
+inTrain <- createDataPartition(
+  y = df_Train$Neighborhood, 
+  p = .75, list = FALSE)
+
+IST.training <- df_Train[ inTrain,] #the in-sample training set
+IST.test <- df_Train[-inTrain,]  #the in-sample test set
+
+reg4 <- lm(log(SalePrice) ~ ., data =  IST.training%>% #regression with in-sample training data
+             as.data.frame %>% dplyr::select(-UniqueSale, -LogDist_Major_Road, -PCTOWNEROC, -DistToPoor,
+                                             -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
+                                             -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
+                                             -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
+                                             -NearCommonwealth, -LogPCTVACANT, -LogDist_Major_Road)) 
+
+#predict on in-sample test set
+reg4Pred <- predict(reg4, IST.test)
+
+reg4PredValues <- 
+  data.frame(observedPrice = IST.test$SalePrice,
+             predictedPrice = exp(reg4Pred))
+
+#store predictions, observed, absolute error, and percent absolute error
+reg4PredValues <-
+  reg4PredValues %>%
+  mutate(error = predictedPrice - observedPrice) %>%
+  mutate(absError = abs(predictedPrice - observedPrice)) %>%
+  mutate(percentAbsError = abs(predictedPrice - observedPrice) / observedPrice) 
+
+
+stargazer(reg4PredValues, type = 'text')
+```
+
+####Testing Generalizability: N-Fold Cross-Validation Method 
+```{r message=FALSE, warning=FALSE}
+fitControl <- trainControl(method = "cv", number = 10)
+
+set.seed(825) #set seed for random number generator
+
+lmFit <- train(log(SalePrice) ~ ., data = df_Train, 
+               method = "lm", 
+               trControl = fitControl)
+
+lmFit$resample
+
+library(stargazer)
+stargazer(lmFit$resample, type = "text")
+```
+
+The plot below shows the distibution of mean absolute error (MAE) values for the 10 folds. 
+```{r}
+#Evaluating Generalizeability: Fold MAE Frequency Plot
+ggplot(as.data.frame(lmFit$resample), aes(MAE)) +
+  geom_histogram(bins=5) +
+  labs(x="Mean Absolute Error",
+       y="Count")
+
+```
+
+No significant outliers are present 
+
+The plot below shows the per-fold R-Square statistic. 
+```{r}
+CVFolds <- cbind(lmFit$resample$Resample, lmFit$resample$Rsquared)
+colnames(CVFolds) <- c("Fold", "RSquared")
+CVFolds <- as.data.frame(CVFolds)
+CVFolds$RSquared <- as.numeric(as.character(CVFolds$RSquared))
+CVFolds$RSquared <- formatC(CVFolds$RSquared,digits=2,format="f")
+CVFolds$RSquared <- as.numeric(as.character(CVFolds$RSquared))
+
+ggplot(CVFolds, aes(x=Fold, y=RSquared)) + 
+  geom_bar(stat="identity", fill = "#4682b4") + scale_y_continuous(limits = c(0, 1)) + geom_text(aes(label=RSquared), vjust=-1) +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+Since all folds have a similar R-Squared statistic, the model seems sufficiently generalizable. 
+
+
+###Test-Set Predictions
+
+The following code uses the chosen model to predict the sale prices of observations in the test set.
+```{r}
+FinalReg <- lm(log(SalePrice) ~ ., data =  df_Train%>% 
+                 as.data.frame %>% dplyr::select(-UniqueSale, -LogDist_Major_Road, -PCTOWNEROC, -DistToPoor,
+                                                 -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
+                                                 -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
+                                                 -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
+                                                 -NearCommonwealth, -LogPCTVACANT, -LogDist_Major_Road)) 
+
+FinalPred <- predict(FinalReg, df_Test)
+
+FinalPredValues <- 
+  data.frame(UniqueSale = df_Test$UniqueSale,
+             PredictedPrice = exp(FinalPred))
+
+head(FinalPredValues)
+```
+
+####Mapping Predicted Values
+```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+library(ggmap)
+LonLat_Test <- data.frame(df[df$SalePrice==0,]$Longitud_1, df[df$SalePrice==0,]$Latitude_1)
+PredictionsToMap <- cbind(FinalPredValues, LonLat_Test)
+colnames(PredictionsToMap) <- c("UniqueSale", "PredictedPrice", "longitude", "latitude")
+
+library(mosaic)
+library(RColorBrewer)
+cols <- colorRampPalette(brewer.pal(5,"RdYlGn"))(5)
+
+ggmap(baseMap_invert) + 
+  geom_point(data = PredictionsToMap, aes(x=longitude, y=latitude, color= ntiles(PredictedPrice, n = 5)), size = 3) +
+  mapTheme() + theme(legend.position="bottom") + 
+  scale_color_manual(name ="Predicted Prices (Quintiles)", values = c(cols))
+```
+
+###Appendix
+
+####Variable Descriptions
+
+**NewlyRemodeled** - Whether the unit was remodeled since 2005 (binary variable)
+
+**GROSS_AREA** - Gross floor area of the unit
+
+**NUM_FLOORS** - Number of floors 
+
+**R_TOTAL_RM** - Total number of rooms
+
+**R_BDRMS** - Number of bedrooms
+
+**R_FULL_BTH** - Number of full bathrooms
+
+**R_HALF_BTH** - Number of half bathrooms
+
+**R_KITCH** - Number of kitchens in the structure
+
+**R_FPLACE** - Number of fireplaces in the structure
+
+**SaleSeason** - Season in which the sale took place. Summer= Jun-Aug, Fall = Sep-Nov, Winter = Dec-Feb, Spring= Mar-May
+
+**Style** - Architectural style
+
+**LU** - City's land use designation 
+
+**R_ROOF_TYP** - Roof structure type: F Flat L Gambrel S Shed G Gable M Mansard H Hip O Other
+
+**R_EXT_FIN** - Exterior finish type: A Asbestos K Concrete U Aluminum B Brick/Stone M Vinyl V Brick/Stone Veneer C Cement Board O Other W Wood Shake F Frame/Clapboard P Asphalt G Glass S Stucco
+
+**C_AC** - Presence of central air-conditioning (binary)
+
+**FeetToParks** - Distance to nearest park (feet)
+
+**FeetToMetro** - Distance to nearest transit stop (feet)
+
+**MEDHHINC** - Median household income of census block group
+
+**PCTBACHMOR** - Percent of population in block group with bachelor's degree or more
+
+**PCTWHITE** - Percent of population in block group which identify as white
+
+**CrimeIndex** - Crime ranking based on density of violent crime occurrences in 2015 (1-6)
+
+**NearUni** - within one kilometer of university (binary)
+
+**SchoolGrade** - ranking of nearest public school (1-9) from greatschools.com
+
+**DistToCBD** - Distance to Central Business District (feet)
+
+**NearImpBldg** - Whether near important landmark/building (binary)
+
+**NearCommonwealth** - whether near commonwealth avenue or Boston commons (binary)
+
+**DistToPoor** - Distance to neighborhoods with median household income less than 25k
+
+**NearAP** - whether within 1500 feet of Logan Airport
+
+**Ave_SalePr** - Average sale price of 5 nearest homes
+
+**Dist_SC** - Distance to public schools (feet)
+
+**Dist_Major_Road** - Distance to road with speed limit over 35 mph (feet)
+
+**LivingArea** - Net living area in unit in feet (logged in model)
+
+**LAND_SF** - Size of lot in feet (logged in model)
