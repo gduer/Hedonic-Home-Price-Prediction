@@ -13,6 +13,8 @@ install.packages('caret')
 install.packages('stargazer')
 install.packages('mosaic')
 install.packages('RColorBrewer')
+install.packages('dplyr')
+install.packages('ggmap')
 
 library(dplyr)
 library(ggmap)
@@ -63,6 +65,10 @@ df_Test <- df2[df2$SalePrice == 0,]
 
 #**********************************EXPLORATORY VARIABLE ANALYSIS*****************************
 
+#Summary Stats
+library(stargazer)
+stargazer(df_Train, type="text", title = "Variable Summary Statistics") 
+
 #Analysis of numeric predictors
 dfNum <- select(df_Train, -UniqueSale, -SaleSeason, -STRUCTURE_, -R_BLDG_STY, -SaleMonth, -Style , -LU, -R_ROOF_TYP, -HEAT_SYS, -R_EXT_FIN, -Neighborhood)
 
@@ -79,7 +85,7 @@ df_Test <- df2[df2$SalePrice == 0,]
 
 #Analysis of continuous predictors
 dfCont <- select(dfNum, -GROSS_AREA, -LivingArea, -YR_REMOD, -NewlyRemodeled, -R_BDRMS, -R_KITCH, -Dist_AP, -NearCommonwealth, -NearImpBldg, -NearUni, -C_AC, -OWN_OCC, -PTYPE, -ZIPCODE, 
-                 -R_FPLACE, -R_HALF_BTH, -R_FULL_BTH)
+                 -R_FPLACE, -R_HALF_BTH, -R_FULL_BTH, -NearAP)
 
 #Distribution analysis
 library(reshape2)
@@ -87,7 +93,7 @@ dfContMelted <- melt(dfCont)
 
 library(ggplot2)
 ggplot(data = dfContMelted, mapping = aes(x = value)) + 
-  geom_histogram(bins = 30) + facet_wrap(~variable, scales = 'free_x')
+  geom_histogram(bins = 30) + facet_wrap(~variable, scales = 'free_x') + theme(axis.text.x = element_blank())
 
 #Log-Transforming to normalize selected predictors 
 hist(df2$LAND_SF, breaks = 30)
@@ -112,7 +118,7 @@ hist(df2$Dist_Major_Road, breaks = 20)
 hist(log(df2$Dist_Major_Road+1), breaks = 20)
 
 df2$LogDist_Major_Road <- log(df2$Dist_Major_Road+1)
-df2$Dist_Road <- NULL
+df2$Dist_Major_Road <- NULL
 
 hist(df2$Ave_SalePr, breaks = 30)
 hist(log(df2$Ave_SalePr), breaks = 30)
@@ -138,7 +144,7 @@ step <- stepAIC(reg1, direction="both")
 
 step$anova
 
-#linear regression 2: Removing very insignificant predictors
+#linear regression 2: Removing highly insignificant predictors
 reg2 <- lm(log(SalePrice) ~ ., data =  df_Train %>% 
              as.data.frame %>% dplyr::select(-UniqueSale, -PCTOWNEROC, -DistToPoor,
                                              -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
@@ -152,7 +158,7 @@ reg3 <- lm(log(SalePrice) ~ ., data =  df_Train %>%
                                              -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
                                              -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
                                              -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
-                                             -NearCommonwealth, -LogPCTVACANT, -Dist_Major_Road))
+                                             -NearCommonwealth, -LogPCTVACANT, -LogDist_Major_Road))
 
 
 summary(reg3)
@@ -234,12 +240,12 @@ inTrain <- createDataPartition(
 IST.training <- df_Train[ inTrain,] #the in-sample training set
 IST.test <- df_Train[-inTrain,]  #the in-sample test set
 
-reg4 <- lm(log(SalePrice) ~ ., data =  IST.training%>% #regression with no in-sample training data
+reg4 <- lm(log(SalePrice) ~ ., data =  IST.training%>% #regression with in-sample training data
              as.data.frame %>% dplyr::select(-UniqueSale, -LogDist_Major_Road, -PCTOWNEROC, -DistToPoor,
                                              -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
                                              -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
                                              -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
-                                             -NearCommonwealth, -LogPCTVACANT, -Dist_Major_Road)) 
+                                             -NearCommonwealth, -LogPCTVACANT, -LogDist_Major_Road)) 
 summary(reg4)
 
 #predict on in-sample test set
@@ -304,7 +310,7 @@ FinalReg <- lm(log(SalePrice) ~ ., data =  df_Train%>%
                                                  -DistToCBD, -SchoolGrade, -MEDHHINC, -WalkScore, -TransitSco, 
                                                  -BikeScore, -FeetToParks, -HEAT_SYS, -R_EXT_FIN, -R_BLDG_STY, -R_ROOF_TYP, -STRUCTURE_,
                                                  -OWN_OCC, -ZIPCODE, -Style, -SaleMonth, -YR_BUILT, -R_TOTAL_RM, -NearImpBldg, -NearCommonwealth,
-                                                 -NearCommonwealth, -LogPCTVACANT, -Dist_Major_Road)) 
+                                                 -NearCommonwealth, -LogPCTVACANT)) 
 
 FinalPred <- predict(FinalReg, df_Test)
 
@@ -328,4 +334,4 @@ ggmap(baseMap_invert) +
   mapTheme() + theme(legend.position="bottom") + 
   scale_color_manual(name ="Predicted Prices (Quintiles)", values = c(cols))
 
-write.csv(FinalPredValues, "predictionsFINAL.csv") #exporting predictions
+write.csv(FinalPredValues, "Test_Set_Predictions.csv") #exporting predictions
