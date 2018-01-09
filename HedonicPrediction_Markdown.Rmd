@@ -2,10 +2,7 @@
 title: "Hedonic Home Price Prediction in Boston, MA"
 author: "Guy Duer"
 date: "January 4, 2018"
-output:
-  html_document: 
-    toc: yes
-  pdf_document: default
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -314,7 +311,7 @@ ggplot() +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-Looks sufficiently heteroscedastic! 
+Looks sufficiently homoscedastic! 
 
 ####Mapping Residuals (Observation points)
 ```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
