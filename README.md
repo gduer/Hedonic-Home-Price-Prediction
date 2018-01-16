@@ -1,4 +1,4 @@
-# Hedonic-Home-Price-Prediction
+# Hedonic Home Price Prediction
 Home Sale Price Prediction in Boston, MA: UPenn MUSA507
 
 ### Introduction
