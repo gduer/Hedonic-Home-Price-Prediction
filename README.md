@@ -13,6 +13,4 @@ To achieve better prediction accuracy, I have collected data to capture as many 
 
 The resulting model was able to improve predictions considerably, with a new error margin of only about 11%-12%.
 
-The map below shows the observation points in the data set.
-
-Please download the HTML Markdown document for full report + visualizations. 
+Please click on the link by the repo title to see full markdown. 
