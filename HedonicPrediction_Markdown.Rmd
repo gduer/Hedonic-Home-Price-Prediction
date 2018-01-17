@@ -299,7 +299,7 @@ ggplot(data = Reg_Dataframe, aes(x = residuals , y = predictedValues)) +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-Observed as function of residuals:
+Predicted as function of observed:
 ```{r}
 regDF <- cbind(log(df_Train$SalePrice), reg3$fitted.values)
 colnames(regDF) <- c("Observed", "Predicted")
