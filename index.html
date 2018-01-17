@@ -590,7 +590,7 @@ ggplot(reg3, aes(Reg_Dataframe$residuals)) + geom_histogram(bins=25) +
   geom_point(size = 1) + xlab(&quot;Residuals&quot;) + ylab(&quot;Predicted Values&quot;) + ggtitle(&quot;Residual Values vs. Predicted Values&quot;) +  
   theme(plot.title = element_text(hjust = 0.5))</code></pre>
 <p><img src="HedonicPrediction_Markdown_files/figure-html/unnamed-chunk-27-1.png" width="672" /></p>
-<p>Observed as function of residuals:</p>
+<p>Predicted as function of observed:</p>
 <pre class="r"><code>regDF &lt;- cbind(log(df_Train$SalePrice), reg3$fitted.values)
 colnames(regDF) &lt;- c(&quot;Observed&quot;, &quot;Predicted&quot;)
 regDF &lt;- as.data.frame(regDF)
