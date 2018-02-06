@@ -1,7 +1,7 @@
 # Hedonic Home Price Prediction
 Home Sale Price Prediction in Boston, MA: UPenn MUSA507
 
-### Introduction
+### Background
 
 (This fictional report was prepared as a class assignment for MUSA507 at the University of Pennsylvania)
 
