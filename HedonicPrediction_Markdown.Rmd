@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-### Introduction
+### Background
 
 (This fictional report was prepared as a class assignment for MUSA507 at the University of Pennsylvania)
 
